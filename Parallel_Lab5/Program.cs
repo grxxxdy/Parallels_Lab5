@@ -27,10 +27,8 @@ class Program : IDisposable
             
             Console.WriteLine("\nClient connected.");
             
-            HandleClient(clientSocket);
-            
-            clientSocket.Shutdown(SocketShutdown.Both);
-            clientSocket.Close();
+            Thread clientThread = new Thread(() => HandleClient(clientSocket));
+            clientThread.Start();
         }
     }
 
@@ -79,6 +77,9 @@ class Program : IDisposable
         }
         
         SendResponse(clientSocket, Encoding.UTF8.GetBytes(response));
+        
+        clientSocket.Shutdown(SocketShutdown.Both);
+        clientSocket.Close();
     }
 
     private static string ReadRequest(Socket clientSocket)
