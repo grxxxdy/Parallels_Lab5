@@ -8,6 +8,7 @@ namespace Parallel_Lab5;
 class Program : IDisposable
 {
     private static Socket? _socket;
+    private static readonly Dictionary<string, string> pages = new();
     static void Main(string[] args)
     {
         string ip = "127.0.0.1";
@@ -21,76 +22,21 @@ class Program : IDisposable
         
         Console.WriteLine($"\nServer running on {ip}:{port}");
 
-        _socket.BeginAccept(AcceptedCallback, null);
-        
-        while(true)
-            Console.ReadLine(); // So server doesn't stop
-    }
-
-    private static void AcceptedCallback(IAsyncResult asyncResult)
-    {
-        try
+        while (true)
         {
-            // Accept the connection and start accepting again
-            Socket clientSocket = _socket!.EndAccept(asyncResult);
-
+            var clientSocket = _socket.Accept();
+            
             Console.WriteLine("\nClient connected.");
-
-            _socket.BeginAccept(AcceptedCallback, null);
-
-            // Start handling client
-            //ThreadPool.QueueUserWorkItem(_ => HandleClient(clientSocket));
-            ReceiveRequest(clientSocket);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine("Error in AcceptCallback: " + ex.Message);
+            
+            ThreadPool.QueueUserWorkItem(_ => HandleClient(clientSocket));
         }
     }
 
     private static void HandleClient(Socket clientSocket)
     {
-        ReceiveRequest(clientSocket);
-    }
+        string request = ReceiveRequest(clientSocket);
+        string response, responseBody;
 
-    private static void ReceiveRequest(Socket clientSocket)
-    {
-        byte[] buffer = new byte[1024];
-
-        clientSocket.BeginReceive(buffer, 0, buffer.Length, SocketFlags.None, ReceiveCallback, 
-            Tuple.Create(clientSocket, buffer, new StringBuilder()));
-    }
-
-    private static void ReceiveCallback(IAsyncResult asyncResult)
-    {
-        // Get context
-        var state = asyncResult.AsyncState as Tuple<Socket, byte[], StringBuilder>;
-        Socket clientSocket = state.Item1;
-        byte[] buffer = state.Item2;
-        StringBuilder requestBuilder = state.Item3;
-        
-        // End receive
-        int bytesReceived = clientSocket.EndReceive(asyncResult);
-        requestBuilder.Append(Encoding.UTF8.GetString(buffer, 0, bytesReceived));
-        
-        // Check if the message is received completely
-        if (bytesReceived != buffer.Length)
-        {
-            Console.WriteLine(requestBuilder.ToString());
-            SendResponse(clientSocket, requestBuilder.ToString());
-            return;
-        }
-        
-        // If not, receive again
-        buffer = new byte[1024];
-        clientSocket.BeginReceive(buffer, 0, buffer.Length, SocketFlags.None, ReceiveCallback, 
-            Tuple.Create(clientSocket, buffer, requestBuilder));
-    }
-    
-    private static void SendResponse(Socket clientSocket, string request)
-    {
-        string responseString, responseBody;
-        
         if (request == "")
         {
             Console.WriteLine("Failed to read request from a client.");
@@ -101,10 +47,10 @@ class Program : IDisposable
                 message = "Server could not read the request properly."
             });
             
-            responseString = $"HTTP/1.1 400 Bad Request\r\n" +
-                             $"Content-Type: application/json\r\n" +
-                             $"Content-Length: {responseBody.Length}\r\n\r\n" +
-                             $"{responseBody}";
+            response = $"HTTP/1.1 400 Bad Request\r\n" +
+                       $"Content-Type: application/json\r\n" +
+                       $"Content-Length: {responseBody.Length}\r\n\r\n" +
+                       $"{responseBody}";
         }
         else
         {
@@ -116,42 +62,73 @@ class Program : IDisposable
                 case "/":
                 case "/index.html":
                     responseBody = GetPage("index.html");
-                    responseString = FormHtmlResponse("200 OK", responseBody);
+                    response = FormHtmlResponse("200 OK", responseBody);
                     break;
                 case "/page2":
                 case "/page2.html":
                     responseBody = GetPage("page2.html");
-                    responseString = FormHtmlResponse("200 OK", responseBody);
+                    response = FormHtmlResponse("200 OK", responseBody);
                     break;
                 default:
                     responseBody = GetPage("404.html");
-                    responseString = FormHtmlResponse("404 Not Found", responseBody);
+                    response = FormHtmlResponse("404 Not Found", responseBody);
                     break;
             }
         }
         
-        byte[] response = Encoding.UTF8.GetBytes(responseString);
-        clientSocket.BeginSend(response, 0, response.Length, SocketFlags.None, SendCallback, clientSocket);
+        SendResponse(clientSocket, Encoding.UTF8.GetBytes(response));
     }
 
-    private static void SendCallback(IAsyncResult asyncResult)
+    private static string ReceiveRequest(Socket clientSocket)
     {
-        Socket clientSocket = asyncResult.AsyncState as Socket;
-
+        byte[] buffer = new byte[1024];
+        string request = "";
+        
         try
         {
-            clientSocket.Shutdown(SocketShutdown.Both);
-            clientSocket.Close();
+            using (var stream = new MemoryStream())
+            {
+                while (true)
+                {
+                    int bytesReceived = clientSocket.Receive(buffer, buffer.Length, SocketFlags.None);
+                    
+                    stream.Write(buffer, 0, bytesReceived);
+        
+                    if (bytesReceived != buffer.Length) break;
+                }
+        
+                request = Encoding.UTF8.GetString(stream.ToArray());
+                Console.WriteLine(request);
+            }
         }
-        catch (Exception ex)
+        catch (SocketException ex)
         {
-            Console.WriteLine("Error in SendCallback: " + ex.Message);
+            Console.WriteLine(ex.Message);
         }
+        
+        return request;
+    }
+    
+    private static void SendResponse(Socket clientSocket, byte[] response)
+    {
+        clientSocket.Send(response);
+        
+        clientSocket.Shutdown(SocketShutdown.Both);
+        clientSocket.Close();
     }
     
     private static string GetPage(string fileName)
     {
-        return File.ReadAllText($"../../../Html/{fileName}");
+        if (pages.ContainsKey(fileName))
+        {
+            return pages[fileName];
+        }
+        
+        string page =  File.ReadAllText($"../../../Html/{fileName}");
+        
+        pages.Add(fileName, page);
+        
+        return page;
     }
 
     private static string FormHtmlResponse(string messageCode, string responseBody)
