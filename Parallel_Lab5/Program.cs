@@ -9,7 +9,7 @@ namespace Parallel_Lab5;
 class Program : IDisposable
 {
     private static Socket? _socket;
-    private static readonly ConcurrentDictionary<string, string> pages = new();
+    private static readonly Dictionary<string, string> pages = new();
     static void Main(string[] args)
     {
         string ip = "127.0.0.1";
@@ -22,12 +22,14 @@ class Program : IDisposable
         _socket.Listen(100);
         
         Console.WriteLine($"\nServer running on {ip}:{port}");
+        
+        AddPagesToDictionary("../../../Html");
 
         while (true)
         {
             var clientSocket = _socket.Accept();
             
-            Console.WriteLine("\nClient connected.");
+            //Console.WriteLine("\nClient connected.");
             
             ThreadPool.QueueUserWorkItem(_ => HandleClient(clientSocket));
         }
@@ -99,7 +101,7 @@ class Program : IDisposable
                 }
         
                 request = Encoding.UTF8.GetString(stream.ToArray());
-                Console.WriteLine(request);
+                //Console.WriteLine(request);
             }
         }
         catch (SocketException ex)
@@ -118,9 +120,9 @@ class Program : IDisposable
         clientSocket.Close();
     }
     
-    private static string GetPage(string fileName)
+    private static string GetPage(string pageName)
     {
-        return pages.GetOrAdd(fileName, fn => File.ReadAllText($"../../../Html/{fn}"));
+        return pages[pageName];
     }
 
     private static string FormHtmlResponse(string messageCode, string responseBody)
@@ -129,6 +131,17 @@ class Program : IDisposable
                $"Content-Type: text/html; charset=UTF-8\r\n" +
                $"Content-Length: {responseBody.Length}\r\n\r\n" +
                $"{responseBody}";
+    }
+
+    private static void AddPagesToDictionary(string pagesFolderPath)
+    {
+        foreach (var filePath in Directory.GetFiles(pagesFolderPath, "*.html"))
+        {
+            string fileName = Path.GetFileName(filePath);
+            string content = File.ReadAllText(filePath);
+
+            pages[fileName] = content;
+        }
     }
 
     public void Dispose()
