@@ -1,4 +1,5 @@
-﻿using System.Net;
+﻿using System.Collections.Concurrent;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
@@ -8,7 +9,7 @@ namespace Parallel_Lab5;
 class Program : IDisposable
 {
     private static Socket? _socket;
-    private static readonly Dictionary<string, string> pages = new();
+    private static readonly ConcurrentDictionary<string, string> pages = new();
     static void Main(string[] args)
     {
         string ip = "127.0.0.1";
@@ -119,16 +120,7 @@ class Program : IDisposable
     
     private static string GetPage(string fileName)
     {
-        if (pages.ContainsKey(fileName))
-        {
-            return pages[fileName];
-        }
-        
-        string page =  File.ReadAllText($"../../../Html/{fileName}");
-        
-        pages.Add(fileName, page);
-        
-        return page;
+        return pages.GetOrAdd(fileName, fn => File.ReadAllText($"../../../Html/{fn}"));
     }
 
     private static string FormHtmlResponse(string messageCode, string responseBody)
